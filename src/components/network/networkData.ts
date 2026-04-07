@@ -120,9 +120,27 @@ export const CONTACTS_SEED: Contact[] = [
   }
 ];
 
-export const SECTORS_DEFAULT = [
-  { name: "Marketing",  bg: "#7c3aed", border: "#c4b5fd" },
+export interface SectorPalette {
+  name: string;
+  bg: string;
+  border: string;
+}
+
+export interface YouColors {
+  fill: string;
+  border: string;
+  text: string;
+}
+
+export const SECTORS_DEFAULT: SectorPalette[] = [
+  { name: "Marketing",   bg: "#3b0764", border: "#c084fc" },
   { name: "Recruitment", bg: "#1f2937", border: "#9ca3af" },
-  { name: "IT",         bg: "#0f766e", border: "#5eead4" },
-  { name: "Vendor",     bg: "#1e3a8a", border: "#93c5fd" },
+  { name: "IT",          bg: "#042f2e", border: "#2dd4bf" },
+  { name: "Vendor",      bg: "#172554", border: "#60a5fa" },
 ];
+
+export const YOU_COLORS_DEFAULT: YouColors = {
+  fill:   "#78350f",
+  border: "#fbbf24",
+  text:   "#fef3c7",
+};
