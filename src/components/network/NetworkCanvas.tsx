@@ -28,6 +28,55 @@ const STATUS_STYLES: Record<string, string> = {
 const INPUT = "w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 placeholder-slate-600";
 const LABEL = "text-[10px] uppercase tracking-wider font-semibold text-slate-500";
 
+// ── Auto-palette pool for new imported sectors ─────────────────────────────────
+// A fixed set of visually distinct bg/border pairs to assign to sectors that
+// arrive via CSV import and don't already have a palette. Deterministic order
+// so the same import always produces the same color assignment.
+const SECTOR_PALETTE_POOL: { bg: string; border: string }[] = [
+  { bg: "#291900", border: "#f59e0b" }, // amber
+  { bg: "#1f0a0a", border: "#f87171" }, // red
+  { bg: "#052e16", border: "#4ade80" }, // green
+  { bg: "#082f49", border: "#38bdf8" }, // sky
+  { bg: "#1e1b4b", border: "#818cf8" }, // indigo
+  { bg: "#2d0d37", border: "#e879f9" }, // fuchsia
+  { bg: "#2a1200", border: "#fb923c" }, // orange
+  { bg: "#132407", border: "#a3e635" }, // lime
+  { bg: "#001e25", border: "#22d3ee" }, // cyan
+  { bg: "#1f1a00", border: "#facc15" }, // yellow
+  { bg: "#2d0a1e", border: "#f472b6" }, // pink
+  { bg: "#291507", border: "#c2855a" }, // brown
+];
+
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace("#", "");
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+
+function colorDist(a: string, b: string): number {
+  const [r1, g1, b1] = hexToRgb(a);
+  const [r2, g2, b2] = hexToRgb(b);
+  return Math.sqrt((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2);
+}
+
+/**
+ * Pick the palette from SECTOR_PALETTE_POOL that is most visually distinct
+ * from the already-assigned palettes. Skips exact duplicates first; falls back
+ * to the entry with the greatest minimum border-color distance.
+ */
+function pickPaletteForSector(used: { bg: string; border: string }[]): { bg: string; border: string } {
+  const usedBorders = used.map(p => p.border);
+  let best = SECTOR_PALETTE_POOL[0];
+  let bestDist = -1;
+  for (const candidate of SECTOR_PALETTE_POOL) {
+    if (used.some(p => p.bg === candidate.bg && p.border === candidate.border)) continue;
+    const minDist = usedBorders.length === 0
+      ? Infinity
+      : Math.min(...usedBorders.map(b => colorDist(candidate.border, b)));
+    if (minDist > bestDist) { bestDist = minDist; best = candidate; }
+  }
+  return best;
+}
+
 // ── Graph utility types ────────────────────────────────────────────────────────
 
 type VN = {
@@ -42,6 +91,7 @@ interface NodeDS {
   add:    (items: unknown[]) => void;
   update: (items: unknown[]) => void;
   remove: (ids: unknown[]) => void;
+  get:    (id: string) => unknown | null;
 }
 interface EdgeDS {
   add:    (items: unknown[]) => void;
@@ -715,14 +765,17 @@ function ContactEditModal({
   sectors,
   onSave,
   onClose,
+  onDelete,
 }: {
   contact: Contact;
   allTags: string[];
   sectors: string[];
   onSave: (updated: Contact) => void;
   onClose: () => void;
+  onDelete: () => void;
 }) {
   const [draft, setDraft] = useState<Contact>({ ...contact });
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   function set<K extends keyof Contact>(key: K, value: Contact[K]) {
     setDraft(prev => ({ ...prev, [key]: value }));
@@ -860,20 +913,44 @@ function ContactEditModal({
 
         </div>
 
-        <div className="px-5 py-3.5 border-t border-slate-800 shrink-0 flex gap-2">
-          <button
-            onClick={onClose}
-            className="flex-1 py-2 rounded border border-slate-700 text-slate-300 hover:text-white hover:border-slate-500 text-xs font-medium transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => { onSave(draft); onClose(); }}
-            className="flex-1 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-colors"
-          >
-            Save
-          </button>
-        </div>
+        {confirmDelete ? (
+          <div className="px-5 py-3.5 border-t border-slate-800 shrink-0 flex items-center gap-2">
+            <span className="text-xs text-slate-400 flex-1">Remove this contact?</span>
+            <button
+              onClick={onDelete}
+              className="px-3 py-2 rounded bg-red-900/40 border border-red-700 text-red-400 hover:bg-red-800/50 text-xs font-medium transition-colors"
+            >
+              Yes, remove
+            </button>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              className="px-3 py-2 rounded border border-slate-700 text-slate-400 hover:text-white text-xs transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <div className="px-5 py-3.5 border-t border-slate-800 shrink-0 flex gap-2">
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="px-3 py-2 rounded border border-red-900/50 text-red-600 hover:text-red-400 hover:border-red-700 text-xs transition-colors"
+            >
+              Remove
+            </button>
+            <button
+              onClick={onClose}
+              className="flex-1 py-2 rounded border border-slate-700 text-slate-300 hover:text-white hover:border-slate-500 text-xs font-medium transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => { onSave(draft); onClose(); }}
+              className="flex-1 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-colors"
+            >
+              Save
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -887,12 +964,14 @@ function ContactPanel({
   sectors,
   onBack,
   onSave,
+  onDelete,
 }: {
   contact: Contact;
   allTags: string[];
   sectors: string[];
   onBack: () => void;
   onSave: (updated: Contact) => void;
+  onDelete: () => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
 
@@ -911,6 +990,7 @@ function ContactPanel({
           sectors={sectors}
           onSave={updated => { onSave(updated); setIsEditing(false); }}
           onClose={() => setIsEditing(false)}
+          onDelete={onDelete}
         />
       )}
 
@@ -1125,6 +1205,28 @@ const NetworkCanvas = forwardRef<NetworkCanvasHandle, {
   useEffect(() => { if (hasHydrated) save(KEYS.sectorPalettes, sectorPalettes); }, [hasHydrated, sectorPalettes]);
   useEffect(() => { if (hasHydrated) save(KEYS.youColors, youColors); },     [hasHydrated, youColors]);
 
+  // Auto-assign palettes for any sector in contacts that doesn't have one yet.
+  // Runs after every contacts change (CSV import, manual edit, etc.).
+  // Uses the functional-updater form so `prev` is always the committed palette
+  // list — no stale-closure risk. sectorPalettes is intentionally NOT in deps
+  // to prevent the loop: effect → setSectorPalettes → re-render → effect.
+  useEffect(() => {
+    if (!hasHydrated) return;
+    setSectorPalettes(prev => {
+      const knownNames = new Set(prev.map(p => p.name));
+      const missing = [
+        ...new Set(contacts.map(c => c.sector.trim()).filter(s => s && !knownNames.has(s))),
+      ];
+      if (missing.length === 0) return prev; // no change → no re-render
+      const updated = [...prev];
+      for (const name of missing) {
+        const { bg, border } = pickPaletteForSector(updated);
+        updated.push({ name, bg, border });
+      }
+      return updated;
+    });
+  }, [hasHydrated, contacts]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Sectors list: driven by palette definitions + any orphaned contact sectors
   const sectors = useMemo(() => {
     const fromPalettes = sectorPalettes.map(p => p.name);
@@ -1174,6 +1276,11 @@ const NetworkCanvas = forwardRef<NetworkCanvasHandle, {
     setSelectedContact(updated);
   }
 
+  function handleDeleteContact(id: number) {
+    setContacts(prev => prev.filter(c => c.id !== id));
+    setSelectedContact(null);
+  }
+
   function handleSaveEditor(palettes: SectorPalette[], you: YouColors) {
     setSectorPalettes(palettes);
     setYouColors(you);
@@ -1206,6 +1313,7 @@ const NetworkCanvas = forwardRef<NetworkCanvasHandle, {
 
     if (toImport.length > 0) {
       setContacts(prev => [...prev, ...toImport.map(p => p.contact)]);
+      // Palette auto-assignment is handled by the contacts-change useEffect above.
     }
 
     // Console log skipped rows for debugging
@@ -1441,13 +1549,15 @@ const NetworkCanvas = forwardRef<NetworkCanvasHandle, {
       });
 
       // AfterDrawing — crater + Saturn ring overlays.
-      const contactNodeIds = initialContacts.map((c, i) => `contact-${c.id ?? i + 1}`);
+      // Use contactsRef.current (not a closed-over snapshot) so that contacts
+      // imported after graph-init are included in every redraw.
       vn.on("afterDrawing", (ctx) => {
         const canvas = ctx as CanvasRenderingContext2D;
-        const allIds = [...contactNodeIds, ...companyNodeIdsRef.current];
+        const liveContactNodeIds = contactsRef.current.map((c, i) => `contact-${c.id ?? i + 1}`);
+        const allIds = [...liveContactNodeIds, ...companyNodeIdsRef.current];
         const positions = vn!.getPositions(allIds);
 
-        contactNodeIds.forEach(nodeId => {
+        liveContactNodeIds.forEach(nodeId => {
           if (hiddenNodesRef.current.has(nodeId)) return;
           const pos = positions[nodeId];
           if (!pos) return;
@@ -1481,14 +1591,30 @@ const NetworkCanvas = forwardRef<NetworkCanvasHandle, {
     const getPalette = (sector: string) =>
       sectorPalettesRef.current.find(p => p.name === sector) ?? { bg: "#020617", border: "#cbd5e1" };
 
-    // Patch contact node labels + colors.
+    // Patch existing contact nodes; add new ones (e.g. from CSV import) with
+    // the full planet-style definition so they match manually created contacts.
     contacts.forEach((c, i) => {
-      const pal = getPalette(c.sector);
-      nodesDataRef.current!.update([{
-        id: `contact-${c.id ?? i + 1}`,
-        label: c.name,
-        color: { background: pal.bg, border: pal.border },
-      }]);
+      const pal    = getPalette(c.sector);
+      const nodeId = `contact-${c.id ?? i + 1}`;
+      if (nodesDataRef.current!.get(nodeId)) {
+        // Node already in DataSet — patch only the fields that can change.
+        nodesDataRef.current!.update([{
+          id: nodeId,
+          label: c.name,
+          color: { background: pal.bg, border: pal.border },
+        }]);
+      } else {
+        // Node does not exist yet (imported after graph init) — add it with the
+        // exact same properties used during initial graph construction.
+        nodesDataRef.current!.add([{
+          id: nodeId,
+          label: c.name,
+          shape: "dot", size: 12,
+          color: { background: pal.bg, border: pal.border },
+          font: { color: "#ffffff", size: 12 },
+          borderWidth: 2,
+        }]);
+      }
     });
 
     const sig = contacts.map(c => `${c.id}:${c.company.trim()}`).join("|");
@@ -1580,7 +1706,7 @@ const NetworkCanvas = forwardRef<NetworkCanvasHandle, {
   // ── JSX ─────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="h-full w-full bg-slate-950 flex">
+    <div className="h-full w-full flex bg-transparent">
 
       {/* Sector editor modal */}
       {editorOpen && (
@@ -1714,6 +1840,7 @@ const NetworkCanvas = forwardRef<NetworkCanvasHandle, {
               sectors={sectors}
               onBack={() => setSelectedContact(null)}
               onSave={handleSaveContact}
+              onDelete={() => handleDeleteContact(selectedContact.id)}
             />
           </div>
         )}
